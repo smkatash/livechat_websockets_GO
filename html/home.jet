@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Home</title>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-KK94CHFLLe+nY2dmCWGMq91rCGa5gtU4mk92HdvYe+M/SXH301p5ILy+dN9+nJOZ" crossorigin="anonymous">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.css" integrity="sha512-7DgarsuahzxiOonlZeYgjXuPFVEDIylPzzlmANJdccCIO0H7ofXKbAKf0FWCkh8NkCFswe3Hpj6HegSTYH6SJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+	<style>
+		.chatbox{
+			outline: 1px solid silver;
+			min-height: 160px;
+			padding: 0.5em;
+		}
+	</style>
+
+</head>
+<body>
+<div class="container">
+	<div class="row">
+		<div class="col">
+			<h1 class="mt-3">Home page</h1>
+			<hr>
+		</div>
+	</div>
+	<div class="row">
+		<div class="col-md-8">
+			<h3>Chat</h3>
+			<div class="form-group">
+				<label for="user">user:</label>
+				<input type="text" name="user" id="user" class="form-control" autocomplete="off">
+			</div>
+
+			<div class="form-group">
+				<label for="message">message:</label>
+				<input type="text" name="message" id="message" class="form-control">
+			</div>
+			<input type="hidden" name="action" id="action">
+			
+			<div id="status" class="mt-2 float-end">
+
+			</div>
+
+			<a href="javascript:void(0);" class="btn btn-outline-secondary" id="sendBtn">Send Message</a>
+
+			<div id="output" class="chatbox mt-3">
+			
+			</div>
+		</div>
+		<div class="col-md-4">
+			<h3>Online</h3>
+				<ul id="online_users">
+				</ul>
+		</div>
+	</div>
+</div>
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ENjdO4Dr2bkBIFxQpeoTz1HIcje39Wm4jDKdf19U8gI4ddQ3GYNS7NTKfAdVQSZe" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/notie/4.3.1/notie.min.js" integrity="sha512-NHRCwRf2LnVSlLDejCA9oS3fG3/FLSQIPCjAWl3M7tVi5wszwr6FxkjotWnQDXLE+aLKcxRrzFDNEgXj9nvkPw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="/static/reconnecting-websocket.min.js"></script>
+
+<script>
+	let socket = null;
+	let out = document.getElementById("output");
+	let userField = document.getElementById("user");
+	let messageField = document.getElementById("message");
+
+	window.onbeforeunload = function() {
+		console.log("Leaving");
+		let data = {};
+		data["action"] = "left";
+		socket.send(JSON.stringify(data));
+	}
+
+	document.addEventListener("DOMContentLoaded", function(){
+		socket = new ReconnectingWebSocket("ws://127.0.0.1:8080/ws", null, {debug: true, reconnectInterval: 3000});
+
+		const offline = `<span class="badge bg-danger">Connection lost</span>`
+		const online = `<span class="badge bg-success">Connected</span>`
+		let statusDiv = document.getElementById("status");
+
+		socket.onopen = () => {
+			console.log("Successfully connected");
+			statusDiv.innerHTML = online;
+		}
+
+		socket.onclose = () => {
+			console.log("Connection closed");
+			statusDiv.innerHTML = offline;
+		}
+
+		socket.onerror = error => {
+			console.log("Connection closed");
+			statusDiv.innerHTML = offline;
+		}
+
+		socket.onmessage = msg => {
+			let data = JSON.parse(msg.data);
+			console.log("Action is", data.action);
+
+			switch(data.action) {
+				case "list_users":
+					let ul = document.getElementById("online_users");
+					while (ul.firstChild)
+						ul.removeChild(ul.firstChild);
+					if (data.connected_users.length > 0) {
+						data.connected_users.forEach(function(item) {
+							let li = document.createElement("li");
+							li.appendChild(document.createTextNode(item));
+							ul.appendChild(li);
+						})
+					}
+					break;
+				case "broadcast":
+					out.innerHTML = out.innerHTML + data.message + "<br>";
+					break;
+
+			}
+		}
+
+		userField.addEventListener("change", function() {
+			let data = {};
+			data["action"] = "user";
+			data["username"] = this.value;
+			socket.send(JSON.stringify(data));
+		})
+
+		messageField.addEventListener("keydown", function(event) {
+			if (event.code === "Enter") {
+				if (!socket) {
+					console.log("no connection");
+					return false
+				}
+				if (userField.value === "") {
+					errorMessage("user field empty");
+					return false;
+				} else if (messageField.value === "") {
+					errorMessage("message field empty");
+					return false;
+				} else {
+					sendMessage();
+					event.preventDefault();
+					event.stopPropagation();
+				}
+			}
+		})
+
+		document.getElementById("sendBtn").addEventListener("click", function() {
+			if (userField.value === "") {
+				errorMessage("user field empty");
+				return false;
+			} else if (messageField.value === "") {
+				errorMessage("message field empty");
+				return false;
+			} else {
+				sendMessage();
+			}
+		})
+	})
+
+	function sendMessage() {
+		let data = {};
+		data["action"] = "broadcast";
+		data["username"] = userField.value;
+		data["message"] = messageField.value;
+		socket.send(JSON.stringify(data))
+		messageField.value = "";
+	}
+
+	function errorMessage(msg) {
+		notie.alert({
+			type: 'error',
+			text: msg,
+		})
+	}
+</script>
+</html>
